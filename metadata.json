@@ -1,0 +1,6 @@
+{
+  "name": "SG Carpark Live",
+  "description": "Real-time Singapore carpark lot availability tracker with live vacancy data, HDB & mall rates, interactive map, and parking fee calculator.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
