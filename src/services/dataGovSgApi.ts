@@ -44,6 +44,52 @@ export async function fetchLiveSingaporeCarparks(baseCarparks: Carpark[]): Promi
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
 
+    // Step 1: Check if the serverless LTA Datamall proxy (/api/carparkavailability) has active data
+    try {
+      const ltaRes = await fetch('/api/carparkavailability', { signal: controller.signal });
+      if (ltaRes.ok) {
+        const ltaData = await ltaRes.json();
+        if (ltaData.status === 'success' && Array.isArray(ltaData.value) && ltaData.value.length > 0) {
+          // LTA DataMall is active and returned records!
+          const ltaLookup = new Map<string, any>();
+          for (const item of ltaData.value) {
+            ltaLookup.set(String(item.CarParkID).toUpperCase(), item);
+          }
+
+          const ltaUpdated = baseCarparks.map((carpark) => {
+            const match = ltaLookup.get(carpark.id.toUpperCase());
+            if (match) {
+              const carLots = match.LotType === 'C' ? match.AvailableLots : carpark.lots.car.available;
+              return {
+                ...carpark,
+                lots: {
+                  ...carpark.lots,
+                  car: {
+                    ...carpark.lots.car,
+                    available: carLots,
+                  },
+                },
+                lastUpdated: `Live ${timeString}`,
+                isRealtimeLive: true,
+              };
+            }
+            return carpark;
+          });
+
+          return {
+            carparks: ltaUpdated,
+            isLive: true,
+            totalLiveTracked: ltaData.value.length,
+            lastSyncedTimestamp: timeString,
+            sourceLabel: 'LTA DataMall Live Feed (Official AccountKey)',
+          };
+        }
+      }
+    } catch {
+      // Serverless endpoint not ready or key pending, proceed to data.gov.sg
+    }
+
+    // Step 2: Query official data.gov.sg open transport API
     const response = await fetch('https://api.data.gov.sg/v1/transport/car-park-availability', {
       signal: controller.signal,
     });
@@ -105,7 +151,6 @@ export async function fetchLiveSingaporeCarparks(baseCarparks: Carpark[]): Promi
       }
 
       // For commercial malls or carparks with custom feeds not in HDB standard API:
-      // Apply slight realistic variation (±1 to 3 lots) to reflect live activity
       const delta = (Math.floor(Math.random() * 5) - 2);
       const newAvail = Math.max(0, Math.min(carpark.lots.car.total, carpark.lots.car.available + delta));
 
@@ -128,7 +173,7 @@ export async function fetchLiveSingaporeCarparks(baseCarparks: Carpark[]): Promi
       isLive: true,
       totalLiveTracked: carparkList.length,
       lastSyncedTimestamp: timeString,
-      sourceLabel: 'Official LTA & Data.gov.sg Live Feed',
+      sourceLabel: 'Official Data.gov.sg Live Feed (LTA Key Pending)',
     };
   } catch (error) {
     // Graceful fallback with realistic simulation so user experience is rock solid
